@@ -11,10 +11,15 @@ import datetime
 import asyncio
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ChatMemberHandler, CommandHandler, filters, ContextTypes
+import os
 
-# ✅ Bot token + group ID
-TOKEN = "YOUR_BOT_TOKEN_HERE"
-GROUP_ID = -1001234567890
+TOKEN = os.getenv("TOKEN")
+GROUP_ID = os.getenv("GROUP_ID")
+
+if not TOKEN or not GROUP_ID:
+    raise ValueError("ERROR: TOKEN or GROUP_ID not set in environment variables!")
+
+GROUP_ID = int(GROUP_ID)
 
 # Market tickers
 TICKERS = {
@@ -195,3 +200,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
