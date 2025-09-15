@@ -97,26 +97,30 @@ def get_market_prices():
     global last_prices
     prices = {}
     for name, ticker in TICKERS.items():
+        current_price = None
+        arrow = " ❓"
         try:
-            # Try downloading 1 day data at 5-minute interval
-            df = yf.download(ticker, period="1d", interval="5m", progress=False)
-            if not df.empty:
-                current_price = round(float(df["Close"].iloc[-1]), 2)
-            else:
-                # fallback to regular market price
-                current_price = round(float(yf.Ticker(ticker).info.get("regularMarketPrice", 0)), 2)
-
+            t = yf.Ticker(ticker)
+            # Try fast_info first (works for crypto & stock)
+            if hasattr(t, "fast_info") and "last_price" in t.fast_info:
+                current_price = round(float(t.fast_info["last_price"]), 2)
+            # Fallback to history
+            if current_price is None:
+                df = t.history(period="1d", interval="5m")
+                if not df.empty:
+                    current_price = round(float(df["Close"].iloc[-1]), 2)
             # Arrow logic
-            if name not in last_prices:
-                arrow = " ➡️"
-            else:
-                arrow = " 🔼" if current_price > last_prices[name] else " 🔽" if current_price < last_prices[name] else " ➡️"
-
-            last_prices[name] = current_price
-            prices[name] = (current_price, arrow)
+            if current_price is not None:
+                if name not in last_prices:
+                    arrow = " ➡️"
+                else:
+                    arrow = " 🔼" if current_price > last_prices[name] else " 🔽" if current_price < last_prices[name] else " ➡️"
+                last_prices[name] = current_price
         except Exception as e:
             print(f"Error fetching {ticker}: {e}")
-            prices[name] = (None, " ❓")
+            current_price = None
+            arrow = " ❓"
+        prices[name] = (current_price, arrow)
     save_last_prices(last_prices)
     return prices
 
@@ -220,4 +224,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
