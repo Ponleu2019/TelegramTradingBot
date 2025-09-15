@@ -1,24 +1,27 @@
-# auto_bot_webhook.py
+# auto_bot.py
 # Telegram Auto Response Bot for Trading Groups + Live Prices (BTC, ETH, BNB, SOL, XAU/USD) via yfinance
-# Webhook version for cloud deployment (Railway)
+# Works with polling, ready for Railway
+
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category=UserWarning)
 
 import os
 import json
+import yfinance as yf
 import datetime
 import asyncio
-import yfinance as yf
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, MessageHandler, ChatMemberHandler, ContextTypes, filters
+from telegram import Update
+from telegram.ext import Application, MessageHandler, ChatMemberHandler, CommandHandler, filters, ContextTypes
 
 # =========================
 # Load bot credentials from environment variables
 # =========================
 TOKEN = os.getenv("TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # e.g., https://your-app.up.railway.app/{TOKEN}
 GROUP_ID = os.getenv("GROUP_ID")
 
-if not TOKEN or not WEBHOOK_URL or not GROUP_ID:
-    raise ValueError("TOKEN, WEBHOOK_URL, or GROUP_ID not set in environment variables!")
+if not TOKEN or not GROUP_ID:
+    raise ValueError("ERROR: TOKEN or GROUP_ID not set in environment variables!")
 
 GROUP_ID = int(GROUP_ID)
 
@@ -53,7 +56,7 @@ TICKERS = {
     "ETH": "ETH-USD",
     "BNB": "BNB-USD",
     "SOL": "SOL-USD",
-    "XAU": "GC=F"
+    "XAU": "GC=F"  # Gold futures
 }
 
 # =========================
@@ -63,12 +66,15 @@ def load_last_prices():
     try:
         with open(PRICES_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
 def save_last_prices(prices):
-    with open(PRICES_FILE, "w", encoding="utf-8") as f:
-        json.dump(prices, f, indent=4)
+    try:
+        with open(PRICES_FILE, "w", encoding="utf-8") as f:
+            json.dump(prices, f, indent=4)
+    except Exception as e:
+        print(f"Error saving prices.json: {e}")
 
 last_prices = load_last_prices()
 
@@ -79,7 +85,7 @@ def load_responses():
     try:
         with open(RESPONSES_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except FileNotFoundError:
         return {}
 
 responses = load_responses()
@@ -92,7 +98,8 @@ def get_market_prices():
     prices = {}
     for name, ticker in TICKERS.items():
         try:
-            df = yf.Ticker(ticker).history(period="1d", interval="1m")
+            ticker_obj = yf.Ticker(ticker)
+            df = ticker_obj.history(period="1d", interval="1m")
             if df.empty:
                 raise ValueError("No data returned")
             current_price = round(float(df["Close"].iloc[-1]), 2)
@@ -112,7 +119,7 @@ def get_market_prices():
     return prices
 
 # =========================
-# Format market message
+# Format market update
 # =========================
 def format_market_message(prices, title="💹 Live Market Prices"):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -127,6 +134,29 @@ def format_market_message(prices, title="💹 Live Market Prices"):
     return message
 
 # =========================
+# Scheduled updates
+# =========================
+async def send_market_update(app: Application):
+    prices = get_market_prices()
+    message = format_market_message(prices, "📊 Market Update")
+    await app.bot.send_message(chat_id=GROUP_ID, text=message)
+
+async def schedule_updates(app: Application):
+    target_times = [(9, 0), (12, 0), (18, 0)]
+    sent_today = set()
+    while True:
+        now = datetime.datetime.now()
+        for hour, minute in target_times:
+            if now.hour == hour and now.minute == minute:
+                key = (now.date(), hour, minute)
+                if key not in sent_today:
+                    await send_market_update(app)
+                    sent_today.add(key)
+        if now.hour == 0 and now.minute == 0:
+            sent_today.clear()
+        await asyncio.sleep(30)
+
+# =========================
 # Telegram Handlers
 # =========================
 async def handle_price_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -135,7 +165,7 @@ async def handle_price_request(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(message)
 
 async def auto_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
+    if update.message is None or update.message.text is None:
         return
     msg = update.message.text.lower()
     if "price" in msg or msg.startswith("/price"):
@@ -168,26 +198,7 @@ async def reload_responses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(responses.get("_reload_success", "Reloaded!"))
 
 # =========================
-# Scheduled updates
-# =========================
-async def scheduled_market_update(app: Application):
-    target_times = [(9,0),(12,0),(18,0)]
-    sent_today = set()
-    while True:
-        now = datetime.datetime.now()
-        for hour, minute in target_times:
-            key = (now.date(), hour, minute)
-            if now.hour == hour and now.minute == minute and key not in sent_today:
-                prices = get_market_prices()
-                message = format_market_message(prices, "📊 Market Update")
-                await app.bot.send_message(chat_id=GROUP_ID, text=message)
-                sent_today.add(key)
-        if now.hour == 0 and now.minute == 0:
-            sent_today.clear()
-        await asyncio.sleep(30)
-
-# =========================
-# Main
+# Main Bot
 # =========================
 def main():
     app = Application.builder().token(TOKEN).build()
@@ -196,18 +207,13 @@ def main():
     app.add_handler(CommandHandler("price", handle_price_request))
     app.add_handler(CommandHandler("reload", reload_responses))
 
-    # Start scheduled market updates
     async def on_startup(_):
-        asyncio.create_task(scheduled_market_update(app))
+        asyncio.create_task(schedule_updates(app))
+
     app.post_init = on_startup
 
-    # Start webhook
-    print("🤖 Bot is running with webhook...")
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 8443)),
-        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
-    )
+    print("🤖 Bot is running... Press Ctrl+C to stop.")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
