@@ -94,30 +94,38 @@ responses = load_responses()
 def get_market_prices():
     global last_prices
     prices = {}
-    try:
-        coin_ids = ",".join(TICKERS.values())
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_ids}&vs_currencies=usd"
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
-        for name, coin_id in TICKERS.items():
+
+    for name, ticker in TICKERS.items():
+        current_price = None
+        arrow = " ❓"
+
+        for attempt in range(3):  # retry up to 3 times
             try:
-                current_price = round(float(data[coin_id]["usd"]), 2)
-                # Arrow logic
-                if name not in last_prices:
-                    arrow = " ➡️"
-                else:
-                    arrow = " 🔼" if current_price > last_prices[name] else " 🔽" if current_price < last_prices[name] else " ➡️"
-                last_prices[name] = current_price
-                prices[name] = (current_price, arrow)
-            except:
-                prices[name] = (None, " ❓")
-    except Exception as e:
-        print(f"Error fetching CoinGecko data: {e}")
-        for name in TICKERS.keys():
-            prices[name] = (None, " ❓")
+                df = yf.Ticker(ticker).history(period="5d", interval="5m")
+                if not df.empty:
+                    current_price = round(float(df["Close"].iloc[-1]), 2)
+                    # Arrow logic
+                    if name not in last_prices:
+                        arrow = " ➡️"
+                    else:
+                        arrow = " 🔼" if current_price > last_prices[name] else " 🔽" if current_price < last_prices[name] else " ➡️"
+                    last_prices[name] = current_price
+                break  # success, no more retry
+            except Exception as e:
+                print(f"Retry {attempt+1} failed for {ticker}: {e}")
+                asyncio.sleep(1)  # wait 1 second before next attempt
+
+        # fallback if all retries fail
+        if current_price is None:
+            current_price = last_prices.get(name)
+            if current_price is not None:
+                arrow = " ➡️"
+
+        prices[name] = (current_price, arrow)
 
     save_last_prices(last_prices)
     return prices
+
 
 # =========================
 # Format market update
@@ -218,3 +226,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
