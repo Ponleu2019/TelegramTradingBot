@@ -1,16 +1,12 @@
 # auto_bot.py
-# Telegram Auto Response Bot for Trading Groups + Live Prices (BTC, ETH, BNB, SOL, XAU/USD) via yfinance
+# Telegram Auto Response Bot for Trading Groups + Live Prices (BTC, ETH, BNB, SOL, XAU/USD) via CoinGecko API
 # Ready for Railway deployment
-
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.simplefilter(action='ignore', category=UserWarning)
 
 import os
 import json
-import yfinance as yf
 import datetime
 import asyncio
+import requests
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ChatMemberHandler, CommandHandler, filters, ContextTypes
 
@@ -49,15 +45,17 @@ if not os.path.exists(PRICES_FILE):
         json.dump({}, f)
 
 # =========================
-# Market tickers
+# Market tickers for CoinGecko
 # =========================
 TICKERS = {
-    "BTC": "BTC-USD",
-    "ETH": "ETH-USD",
-    "BNB": "BNB-USD",
-    "SOL": "SOL-USD",
-    "XAU": "GC=F"  # Gold futures
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "BNB": "binancecoin",
+    "SOL": "solana",
+    "XAU": "tether-gold"  # Gold token on CoinGecko
 }
+
+last_prices = {}
 
 # =========================
 # Load last prices
@@ -91,39 +89,35 @@ def load_responses():
 responses = load_responses()
 
 # =========================
-# Fetch live market prices
+# Fetch live market prices from CoinGecko
 # =========================
 def get_market_prices():
     global last_prices
     prices = {}
-    for name, ticker in TICKERS.items():
-        current_price = None
-        arrow = " ❓"
-        try:
-            t = yf.Ticker(ticker)
-            # Try fast_info first (works for crypto & stock)
-            if hasattr(t, "fast_info") and "last_price" in t.fast_info:
-                current_price = round(float(t.fast_info["last_price"]), 2)
-            # Fallback to history
-            if current_price is None:
-                df = t.history(period="1d", interval="5m")
-                if not df.empty:
-                    current_price = round(float(df["Close"].iloc[-1]), 2)
-            # Arrow logic
-            if current_price is not None:
+    try:
+        coin_ids = ",".join(TICKERS.values())
+        url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_ids}&vs_currencies=usd"
+        resp = requests.get(url, timeout=10)
+        data = resp.json()
+        for name, coin_id in TICKERS.items():
+            try:
+                current_price = round(float(data[coin_id]["usd"]), 2)
+                # Arrow logic
                 if name not in last_prices:
                     arrow = " ➡️"
                 else:
                     arrow = " 🔼" if current_price > last_prices[name] else " 🔽" if current_price < last_prices[name] else " ➡️"
                 last_prices[name] = current_price
-        except Exception as e:
-            print(f"Error fetching {ticker}: {e}")
-            current_price = None
-            arrow = " ❓"
-        prices[name] = (current_price, arrow)
+                prices[name] = (current_price, arrow)
+            except:
+                prices[name] = (None, " ❓")
+    except Exception as e:
+        print(f"Error fetching CoinGecko data: {e}")
+        for name in TICKERS.keys():
+            prices[name] = (None, " ❓")
+
     save_last_prices(last_prices)
     return prices
-
 
 # =========================
 # Format market update
@@ -224,5 +218,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
