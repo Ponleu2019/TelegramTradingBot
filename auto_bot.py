@@ -98,10 +98,13 @@ def get_market_prices():
     prices = {}
     for name, ticker in TICKERS.items():
         try:
-            df = yf.Ticker(ticker).history(period="1d", interval="1m")
-            if df.empty:
-                raise ValueError("No data returned")
-            current_price = round(float(df["Close"].iloc[-1]), 2)
+            # Try downloading 1 day data at 5-minute interval
+            df = yf.download(ticker, period="1d", interval="5m", progress=False)
+            if not df.empty:
+                current_price = round(float(df["Close"].iloc[-1]), 2)
+            else:
+                # fallback to regular market price
+                current_price = round(float(yf.Ticker(ticker).info.get("regularMarketPrice", 0)), 2)
 
             # Arrow logic
             if name not in last_prices:
@@ -116,6 +119,7 @@ def get_market_prices():
             prices[name] = (None, " ❓")
     save_last_prices(last_prices)
     return prices
+
 
 # =========================
 # Format market update
@@ -216,3 +220,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
