@@ -1,5 +1,6 @@
 # auto_bot.py
 # Telegram Auto Response Bot for Trading Groups + Live Prices (BTC, ETH, BNB, SOL, XAU/USD) via CoinGecko API
+# Timezone set to Asia/Bangkok (UTC+7)
 # Ready for Railway deployment
 
 import os
@@ -7,13 +8,12 @@ import json
 import datetime
 import asyncio
 import requests
+from zoneinfo import ZoneInfo  # ✅ Timezone support
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ChatMemberHandler, CommandHandler, filters, ContextTypes
-import datetime
-from zoneinfo import ZoneInfo  # built-in in Python 3.9+
 
 # =========================
-# Load bot credentials from environment variables
+# Load bot credentials
 # =========================
 TOKEN = os.getenv("TOKEN")
 GROUP_ID = os.getenv("GROUP_ID")
@@ -60,7 +60,7 @@ TICKERS = {
 last_prices = {}
 
 # =========================
-# Load last prices
+# Load / Save prices
 # =========================
 def load_last_prices():
     try:
@@ -91,7 +91,7 @@ def load_responses():
 responses = load_responses()
 
 # =========================
-# Fetch live market prices from CoinGecko
+# Fetch live market prices
 # =========================
 def get_market_prices():
     global last_prices
@@ -122,11 +122,12 @@ def get_market_prices():
     return prices
 
 # =========================
-# Format market update
+# Format message with Bangkok time
 # =========================
 def format_market_message(prices, title="💹 Live Market Prices"):
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    message = f"{title} ({now}):\n\n"
+    now = datetime.datetime.now(ZoneInfo("Asia/Bangkok"))  # ✅ force UTC+7
+    timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    message = f"{title} ({timestamp}):\n\n"
     for coin, (price, arrow) in prices.items():
         if price is not None:
             symbol = "💰" if coin=="BTC" else "💎" if coin=="ETH" else "🟡" if coin=="BNB" else "🟣" if coin=="SOL" else "🏅"
@@ -137,29 +138,30 @@ def format_market_message(prices, title="💹 Live Market Prices"):
     return message
 
 # =========================
-# Send scheduled updates
+# Scheduled updates (Bangkok time)
 # =========================
-# Background async scheduler (Bangkok time)
-async def schedule_updates(app: Application):
-    tz = ZoneInfo("Asia/Bangkok")  # set timezone
-    target_times = [(9, 43), (12, 0), (18, 0)]  # Bangkok local time
-    sent_today = set()
+async def send_market_update(app: Application):
+    prices = get_market_prices()
+    message = format_market_message(prices, "📊 Market Update")
+    await app.bot.send_message(chat_id=GROUP_ID, text=message)
 
+async def schedule_updates(app: Application):
+    target_times = [(9, 0), (12, 0), (18, 0)]  # Bangkok times
+    sent_today = set()
     while True:
-        now = datetime.datetime.now(tz)  # current time in Bangkok
+        now = datetime.datetime.now(ZoneInfo("Asia/Bangkok"))
         for hour, minute in target_times:
             if now.hour == hour and now.minute == minute:
                 key = (now.date(), hour, minute)
                 if key not in sent_today:
                     await send_market_update(app)
                     sent_today.add(key)
-        # Reset sent_today at midnight Bangkok time
         if now.hour == 0 and now.minute == 0:
             sent_today.clear()
         await asyncio.sleep(30)
 
 # =========================
-# Telegram Handlers
+# Handlers
 # =========================
 async def handle_price_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prices = get_market_prices()
@@ -200,7 +202,7 @@ async def reload_responses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(responses.get("_reload_success", "Reloaded!"))
 
 # =========================
-# Main Bot
+# Main
 # =========================
 def main():
     app = Application.builder().token(TOKEN).build()
@@ -215,16 +217,7 @@ def main():
     app.post_init = on_startup
 
     print("🤖 Bot is running... Press Ctrl+C to stop.")
-    if __name__ == "__main__":
-    try:
-        print("🤖 Bot is starting...")
-        main()
-    except Exception as e:
-        print("⚠️ Bot already running or conflict:", e)
-
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
-
