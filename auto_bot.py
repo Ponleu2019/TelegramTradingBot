@@ -215,8 +215,16 @@ def main():
     app.post_init = on_startup
 
     print("🤖 Bot is running... Press Ctrl+C to stop.")
+    if __name__ == "__main__":
+    try:
+        print("🤖 Bot is starting...")
+        main()
+    except Exception as e:
+        print("⚠️ Bot already running or conflict:", e)
+
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+
 
