@@ -9,6 +9,8 @@ import asyncio
 import requests
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ChatMemberHandler, CommandHandler, filters, ContextTypes
+import datetime
+from zoneinfo import ZoneInfo  # built-in in Python 3.9+
 
 # =========================
 # Load bot credentials from environment variables
@@ -137,22 +139,21 @@ def format_market_message(prices, title="💹 Live Market Prices"):
 # =========================
 # Send scheduled updates
 # =========================
-async def send_market_update(app: Application):
-    prices = get_market_prices()
-    message = format_market_message(prices, "📊 Market Update")
-    await app.bot.send_message(chat_id=GROUP_ID, text=message)
-
+# Background async scheduler (Bangkok time)
 async def schedule_updates(app: Application):
-    target_times = [(9, 0), (12, 0), (18, 0)]
+    tz = ZoneInfo("Asia/Bangkok")  # set timezone
+    target_times = [(9, 43), (12, 0), (18, 0)]  # Bangkok local time
     sent_today = set()
+
     while True:
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(tz)  # current time in Bangkok
         for hour, minute in target_times:
             if now.hour == hour and now.minute == minute:
                 key = (now.date(), hour, minute)
                 if key not in sent_today:
                     await send_market_update(app)
                     sent_today.add(key)
+        # Reset sent_today at midnight Bangkok time
         if now.hour == 0 and now.minute == 0:
             sent_today.clear()
         await asyncio.sleep(30)
@@ -218,3 +219,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
