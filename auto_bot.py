@@ -146,7 +146,7 @@ async def send_market_update(app: Application):
     await app.bot.send_message(chat_id=GROUP_ID, text=message)
 
 async def schedule_updates(app: Application):
-    target_times = [(9, 0), (12, 0), (18, 0)]  # Bangkok times
+    target_times = [(9, 0), (12, 0), (19, 0)]  # Bangkok times
     sent_today = set()
     while True:
         now = datetime.datetime.now(ZoneInfo("Asia/Bangkok"))
@@ -221,3 +221,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
