@@ -134,7 +134,7 @@ def format_market_message(prices, title="💹 Live Market Prices"):
             message += f"{symbol} {coin}/USD: ${price:,.2f}{arrow}\n"
         else:
             message += f"⚠️ {coin}/USD: N/A{arrow}\n"
-    message += "\n💰 Trade Smart. Grow Together 💸"
+    message += "\n💰 One trade is enough to change your life 💸"
     return message
 
 # =========================
@@ -221,5 +221,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
